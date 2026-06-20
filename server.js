@@ -20,11 +20,15 @@ function checkWinConditions(room, roomId) {
     
     const alivePlayers = room.players.filter(p => !p.isDead);
     const impostorsAlive = alivePlayers.filter(p => p.isImpostor).length;
-    const crewmatesAlive = alivePlayers.filter(p => !p.isImpostor).length;
+    const totalAlive = alivePlayers.length;
 
     if (impostorsAlive === 0) {
         io.to(roomId).emit('matchEnded', { winner: 'crew' });
-    } else if (impostorsAlive >= crewmatesAlive) {
+    } else if (impostorsAlive === 1 && totalAlive <= 2) {
+        io.to(roomId).emit('matchEnded', { winner: 'impostor' });
+    } else if (impostorsAlive === 2 && totalAlive <= 4) {
+        io.to(roomId).emit('matchEnded', { winner: 'impostor' });
+    } else if (impostorsAlive >= (totalAlive - impostorsAlive)) {
         io.to(roomId).emit('matchEnded', { winner: 'impostor' });
     }
 }
