@@ -15,6 +15,20 @@ app.get('/', (req, res) => {
 });
 app.use(express.static(__dirname));
 
+function checkWinConditions(room, roomId) {
+    if (!room || !room.players || room.players.length === 0) return;
+    
+    const alivePlayers = room.players.filter(p => !p.isDead);
+    const impostorsAlive = alivePlayers.filter(p => p.isImpostor).length;
+    const crewmatesAlive = alivePlayers.filter(p => !p.isImpostor).length;
+
+    if (impostorsAlive === 0) {
+        io.to(roomId).emit('matchEnded', { winner: 'crew' });
+    } else if (impostorsAlive >= crewmatesAlive) {
+        io.to(roomId).emit('matchEnded', { winner: 'impostor' });
+    }
+}
+
 io.on('connection', (socket) => {
     socket.on('requestRoomList', () => {
         const roomList = Object.values(rooms).map(room => ({
@@ -100,6 +114,7 @@ io.on('connection', (socket) => {
             
             room.players.forEach((p, index) => {
                 p.isImpostor = impostorIndices.includes(index);
+                p.isDead = false;
             });
 
             const allTasksPool = [
@@ -156,6 +171,7 @@ io.on('connection', (socket) => {
                     color: victim.color,
                     colorName: victim.colorName
                 });
+                checkWinConditions(room, data.roomId);
             }
         }
     });
@@ -210,6 +226,10 @@ io.on('connection', (socket) => {
                     ejectedId: tie ? null : ejectedId,
                     ejectedName: ejectedName
                 });
+                
+                setTimeout(() => {
+                    checkWinConditions(room, data.roomId);
+                }, 4000);
             }
         }
     });
@@ -236,6 +256,7 @@ io.on('connection', (socket) => {
                         room.hostName = room.players[0].name;
                     }
                     io.to(roomId).emit('roomUpdate', room);
+                    checkWinConditions(room, roomId);
                 }
                 updateAllRoomLists();
                 break;
