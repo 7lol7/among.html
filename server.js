@@ -191,6 +191,17 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('sendMeetingMessage', (data) => {
+        const room = rooms[data.roomId];
+        if (room) {
+            io.to(data.roomId).emit('meetingMessage', {
+                text: data.text,
+                sender: data.sender,
+                color: data.color
+            });
+        }
+    });
+
     socket.on('submitVote', (data) => {
         const room = rooms[data.roomId];
         if (room) {
