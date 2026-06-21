@@ -96,6 +96,29 @@
             position: relative;
         }
         .color-dot.selected { border-color: white; }
+
+        .cosmetic-picker {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-top: 15px;
+            max-width: 320px;
+        }
+        .cosmetic-option {
+            background: #222;
+            border: 2px solid #4b5563;
+            color: white;
+            padding: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        .cosmetic-option.selected {
+            border-color: #ef4444;
+            background: #374151;
+        }
         
         .server-container {
             width: 85%;
@@ -276,6 +299,14 @@
 
         <p style="margin-top: 15px;">Select color:</p>
         <div class="color-picker" id="colorPicker"></div>
+
+        <p style="margin-top: 15px;">Select Hat Cosmetic:</p>
+        <div class="cosmetic-picker" id="cosmeticPicker">
+            <div class="cosmetic-option selected" data-hat="none">None</div>
+            <div class="cosmetic-option" data-hat="party">🎉 Party</div>
+            <div class="cosmetic-option" data-hat="chef">👨‍🍳 Chef</div>
+            <div class="cosmetic-option" data-hat="crown">👑 Crown</div>
+        </div>
         
         <div style="display: flex; gap: 15px; margin-top: 10px;">
             <button class="btn" id="findGameBtn" style="background-color: #3b82f6;">Find Game</button>
@@ -493,7 +524,8 @@ let player = {
     killCooldown: 0,
     ventCooldownTimer: 0,
     buttonsRemaining: 1,
-    id: null
+    id: null,
+    hat: 'none'
 };
 
 let bots = [];
@@ -609,6 +641,14 @@ colorsList.forEach((col, idx) => {
     colorPicker.appendChild(dot);
 });
 
+document.querySelectorAll('.cosmetic-option').forEach(opt => {
+    opt.onclick = () => {
+        document.querySelectorAll('.cosmetic-option').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+        player.hat = opt.getAttribute('data-hat');
+    };
+});
+
 function toggleColorblind() {
     settings.colorblindMode = !settings.colorblindMode;
     document.getElementById('colorblindToggle').classList.toggle('on', settings.colorblindMode);
@@ -687,7 +727,7 @@ document.getElementById('createGameBtn').onclick = () => {
     document.getElementById('waitingStatusText').textContent = "Configure settings and start match whenever ready";
     document.getElementById('settingsContainerPanel').style.pointerEvents = "auto";
     document.getElementById('settingsContainerPanel').style.opacity = "1";
-    socket.emit('createRoom', { playerName: player.name, playerColor: player.color, playerColorName: player.colorName });
+    socket.emit('createRoom', { playerName: player.name, playerColor: player.color, playerColorName: player.colorName, hat: player.hat });
 };
 
 document.getElementById('backToLobbyBtn').onclick = () => {
@@ -722,7 +762,7 @@ socket.on('roomList', (rooms) => {
         row.onclick = () => {
             isHostMode = false;
             document.getElementById('serverBrowserUI').style.display = 'none';
-            socket.emit('joinRoom', { roomId: room.id, playerName: player.name, playerColor: player.color, playerColorName: player.colorName });
+            socket.emit('joinRoom', { roomId: room.id, playerName: player.name, playerColor: player.color, playerColorName: player.colorName, hat: player.hat });
         };
         container.appendChild(row);
     });
@@ -801,6 +841,8 @@ socket.on('matchStarted', (matchData) => {
     player.y = localPlayerData.y;
     player.color = localPlayerData.color || player.color;
     player.colorName = localPlayerData.colorName || player.colorName;
+    player.name = localPlayerData.name;
+    player.hat = localPlayerData.hat || player.hat;
 
     activeMatchTasks = matchData.tasksPool.map(t => ({ ...t, completed: false }));
     
@@ -840,6 +882,7 @@ function startSimulationLoop() {
 function getDist(x1, y1, x2, y2) { return Math.sqrt((x2 - x1)**2 + (y2 - y1)**2); }
 
 function checkWallCollision(x, y, radius) {
+    if (player.isDead) return false;
     if(x - radius < 0 || x + radius > CONFIG.worldWidth || y - radius < 0 || y + radius > CONFIG.worldHeight) return true;
     for(let w of walls) {
         if (x + radius > w.x && x - radius < w.x + w.width && y + radius > w.y && y - radius < w.y + w.height) return true;
@@ -892,10 +935,10 @@ function updateHUD() {
                 if(d < closestDist) { closestDist = d; target = b; }
             }
         });
-        document.getElementById('killBtn').style.opacity = (target && player.killCooldown <= 0 && player.inVent === null) ? "1" : "0.4";
+        document.getElementById('killBtn').style.opacity = (target && player.killCooldown <= 0 && player.inVent === null && !player.isDead) ? "1" : "0.4";
 
         let nearVent = vents.find(v => getDist(player.x, player.y, v.x, v.y) < 55);
-        if(nearVent || player.inVent !== null) {
+        if((nearVent || player.inVent !== null) && !player.isDead) {
             document.getElementById('ventBtn').style.display = 'flex';
             if(player.inVent !== null) {
                 document.getElementById('ventBtn').textContent = "Exit";
@@ -914,10 +957,10 @@ function updateHUD() {
         
         if (nearEmergencyButton) {
             let hasPresses = player.buttonsRemaining > 0;
-            document.getElementById('useBtn').style.opacity = hasPresses ? "1" : "0.4";
+            document.getElementById('useBtn').style.opacity = (hasPresses && !player.isDead) ? "1" : "0.4";
             document.getElementById('useBtn').textContent = `Btn (${player.buttonsRemaining})`;
         } else {
-            document.getElementById('useBtn').style.opacity = nearTask ? "1" : "0.4";
+            document.getElementById('useBtn').style.opacity = (nearTask && !player.isDead) ? "1" : "0.4";
             document.getElementById('useBtn').textContent = "Use";
         }
     }
@@ -939,7 +982,7 @@ document.getElementById('reportBtn').onclick = () => {
 };
 
 document.getElementById('killBtn').onclick = () => {
-    if(!player.isImpostor || player.killCooldown > 0 || player.inVent !== null) return;
+    if(!player.isImpostor || player.killCooldown > 0 || player.inVent !== null || player.isDead) return;
     let target = null;
     let closestDist = 90;
     bots.forEach(b => {
@@ -955,7 +998,7 @@ document.getElementById('killBtn').onclick = () => {
 };
 
 document.getElementById('ventBtn').onclick = () => {
-    if(!player.isImpostor) return;
+    if(!player.isImpostor || player.isDead) return;
     if(player.inVent !== null) {
         let curIdx = vents.findIndex(v => v.id === player.inVent);
         let nextIdx = (curIdx + 1) % vents.length;
@@ -982,7 +1025,7 @@ document.getElementById('ventBtn').onclick = () => {
 };
 
 document.getElementById('sabotageBtn').onclick = () => {
-    if(!player.isImpostor || sabotageActive) return;
+    if(!player.isImpostor || sabotageActive || player.isDead) return;
     document.getElementById('sabotageModal').style.display = 'flex';
 };
 
@@ -997,7 +1040,8 @@ document.getElementById('sabDoorsBtn').onclick = () => {
 };
 
 document.getElementById('useBtn').onclick = () => {
-    if(!player.isDead && getDist(player.x, player.y, 1600, 520) < 60) {
+    if(player.isDead) return;
+    if(getDist(player.x, player.y, 1600, 520) < 60) {
         if(player.buttonsRemaining <= 0) return;
         player.buttonsRemaining--;
         socket.emit('callMeeting', { roomId: activeRoomId, reason: `Emergency meeting called by ${player.name}!` });
@@ -1130,6 +1174,10 @@ function completeActiveTask() {
 
 document.getElementById('meetingChatInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
+        if (player.isDead) {
+            e.target.value = "";
+            return;
+        }
         let val = e.target.value.trim();
         if (val) {
             socket.emit('sendMeetingMessage', { roomId: activeRoomId, text: val, sender: player.name, color: player.color });
@@ -1178,6 +1226,8 @@ socket.on('globalPositions', (playersPositions) => {
                 matched.isDead = pData.isDead;
                 matched.color = pData.color || matched.color;
                 matched.colorName = pData.colorName || matched.colorName;
+                matched.name = pData.name;
+                matched.hat = pData.hat || matched.hat;
             } else {
                 bots.push(pData);
             }
@@ -1192,6 +1242,13 @@ socket.on('meetingCalled', (data) => {
 
     document.getElementById('meetingChatBox').innerHTML = "";
     document.getElementById('meetingReasonText').textContent = data.reason;
+    
+    if (player.isDead) {
+        document.getElementById('meetingChatInput').style.display = "none";
+    } else {
+        document.getElementById('meetingChatInput').style.display = "block";
+    }
+
     renderMeetingRoster(data.currentRoster);
     document.getElementById('meetingModal').style.display = 'flex';
 });
@@ -1259,7 +1316,9 @@ socket.on('meetingResults', (data) => {
     deadBodies = [];
     forceShowTaskbar = false;
 
-    player.x = 1600; player.y = 550;
+    if (!player.isDead) {
+        player.x = 1600; player.y = 550;
+    }
     
     if(data.ejectedName) {
         alert(`${data.ejectedName} was ejected from the facility.`);
@@ -1330,7 +1389,7 @@ function updateEngine() {
 
     let currentSpeed = CONFIG.basePlayerSpeed * gameSettings.speedModifier;
 
-    if (player.inVent === null && !player.isDead) {
+    if (player.inVent === null) {
         if (keys['w'] || keys['arrowup']) { my = -1; positionChanged = true; }
         if (keys['s'] || keys['arrowdown']) { my = 1; positionChanged = true; }
         if (keys['a'] || keys['arrowleft']) { mx = -1; positionChanged = true; }
@@ -1341,13 +1400,18 @@ function updateEngine() {
         let nextX = player.x + mx * currentSpeed;
         let nextY = player.y + my * currentSpeed;
 
-        if (!checkWallCollision(nextX, player.y, player.radius)) player.x = nextX;
-        if (!checkWallCollision(player.x, nextY, player.radius)) player.y = nextY;
+        if (player.isDead) {
+            player.x = nextX;
+            player.y = nextY;
+        } else {
+            if (!checkWallCollision(nextX, player.y, player.radius)) player.x = nextX;
+            if (!checkWallCollision(player.x, nextY, player.radius)) player.y = nextY;
+        }
         
         if (positionChanged) {
             socket.emit('syncPosition', { roomId: activeRoomId, x: player.x, y: player.y, inVent: null });
         }
-    } else if (player.inVent !== null) {
+    } else if (player.inVent !== null && !player.isDead) {
         let curVent = vents.find(v => v.id === player.inVent);
         let targetVent = null;
 
@@ -1419,12 +1483,14 @@ function renderEngine() {
 
     bots.forEach(b => { 
         if(!b.isDead && b.inVent === null) {
-            drawCharacter(b.x, b.y, b.color, b.name, b.colorName); 
+            drawCharacter(b.x, b.y, b.color, b.name, b.colorName, b.hat, false); 
+        } else if (b.isDead && player.isDead) {
+            drawCharacter(b.x, b.y, b.color, b.name, b.colorName, b.hat, true);
         }
     });
 
     if (player.inVent === null) {
-        if(!player.isDead) drawCharacter(player.x, player.y, player.color, player.name, player.colorName);
+        drawCharacter(player.x, player.y, player.color, player.name, player.colorName, player.hat, player.isDead);
     }
     ctx.restore();
 
@@ -1434,16 +1500,35 @@ function renderEngine() {
     }
 }
 
-function drawCharacter(x, y, color, tag, colorTag) {
+function drawCharacter(x, y, color, tag, colorTag, hat, isGhost) {
+    ctx.save();
+    if (isGhost) {
+        ctx.globalAlpha = 0.45;
+    }
     let finalColor = color || '#3b82f6';
     let finalColorTag = colorTag || 'BLUE';
     ctx.fillStyle = finalColor; ctx.fillRect(x - 25, y - 8, 8, 22);
     ctx.beginPath(); ctx.arc(x, y, player.radius, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#7dd3fc'; ctx.fillRect(x + 2, y - 10, 15, 11);
-    ctx.fillStyle = '#fff'; ctx.font = '13px Courier'; ctx.textAlign = 'center';
     
+    if (hat && hat !== 'none') {
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.font = '16px Arial';
+        if (hat === 'party') {
+            ctx.fillText('🎉', x, y - 18);
+        } else if (hat === 'chef') {
+            ctx.fillText('👨‍🍳', x, y - 18);
+        } else if (hat === 'crown') {
+            ctx.fillText('👑', x, y - 18);
+        }
+    }
+
+    ctx.fillStyle = '#fff'; ctx.font = '13px Courier'; ctx.textAlign = 'center';
     let displayTag = settings.colorblindMode ? `${tag} (${finalColorTag})` : tag;
+    if (isGhost) displayTag = "[GHOST] " + displayTag;
     ctx.fillText(displayTag, x, y - 26);
+    ctx.restore();
 }
 </script>
 </body>
